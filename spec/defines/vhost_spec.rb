@@ -2,7 +2,7 @@ require 'spec_helper'
 
 describe 'apache::vhost', :type => :define do
   let :pre_condition do
-    'class { "apache": default_vhost => false, default_mods => false, }'
+    'class { "apache": default_vhost => false, default_mods => false, vhost_enable_dir => "/etc/apache2/sites-enabled"}'
   end
   let :title do
     'rspec.example.com'
@@ -24,6 +24,7 @@ describe 'apache::vhost', :type => :define do
           :id                     => 'root',
           :kernel                 => 'Linux',
           :path                   => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+          :is_pe                  => false,
         }
       end
       let :params do default_params end
@@ -42,13 +43,14 @@ describe 'apache::vhost', :type => :define do
           :id                     => 'root',
           :kernel                 => 'Linux',
           :path                   => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+          :is_pe                  => false,
         }
       end
       let :params do default_params end
       let :facts do default_facts end
       it { is_expected.to contain_class("apache") }
       it { is_expected.to contain_class("apache::params") }
-      it { is_expected.to contain_file("25-rspec.example.com.conf").with(
+      it { is_expected.to contain_concat("25-rspec.example.com.conf").with(
         :ensure => 'present',
         :path   => '/etc/apache2/sites-available/25-rspec.example.com.conf'
       ) }
@@ -68,15 +70,38 @@ describe 'apache::vhost', :type => :define do
           :id                     => 'root',
           :kernel                 => 'FreeBSD',
           :path                   => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+          :is_pe                  => false,
         }
       end
       let :params do default_params end
       let :facts do default_facts end
       it { is_expected.to contain_class("apache") }
       it { is_expected.to contain_class("apache::params") }
-      it { is_expected.to contain_file("25-rspec.example.com.conf").with(
+      it { is_expected.to contain_concat("25-rspec.example.com.conf").with(
         :ensure => 'present',
-        :path   => '/usr/local/etc/apache22/Vhosts/25-rspec.example.com.conf'
+        :path   => '/usr/local/etc/apache24/Vhosts/25-rspec.example.com.conf'
+      ) }
+    end
+    context "on Gentoo systems" do
+      let :default_facts do
+        {
+          :osfamily               => 'Gentoo',
+          :operatingsystem        => 'Gentoo',
+          :operatingsystemrelease => '3.16.1-gentoo',
+          :concat_basedir         => '/dne',
+          :id                     => 'root',
+          :kernel                 => 'Linux',
+          :path                   => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/bin',
+          :is_pe                  => false,
+        }
+      end
+      let :params do default_params end
+      let :facts do default_facts end
+      it { is_expected.to contain_class("apache") }
+      it { is_expected.to contain_class("apache::params") }
+      it { is_expected.to contain_concat("25-rspec.example.com.conf").with(
+        :ensure => 'present',
+        :path   => '/etc/apache2/vhosts.d/25-rspec.example.com.conf'
       ) }
     end
   end
@@ -91,6 +116,7 @@ describe 'apache::vhost', :type => :define do
         :id                     => 'root',
         :kernel                 => 'Linux',
         :path                   => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+        :is_pe                  => false,
       }
     end
     describe 'basic assumptions' do
@@ -142,19 +168,30 @@ describe 'apache::vhost', :type => :define do
           'log_level'                   => 'crit',
           'access_log'                  => false,
           'access_log_file'             => 'httpd_access_log',
-          'access_log_pipe'             => '',
           'access_log_syslog'           => true,
           'access_log_format'           => '%h %l %u %t \"%r\" %>s %b',
           'access_log_env_var'          => '',
           'aliases'                     => '/image',
-          'directories'                 => {
-            'path'     => '/var/www/files',
-            'provider' => 'files',
-            'deny'     => 'from all'
-          },
+          'directories'                 => [
+            {
+              'path'     => '/var/www/files',
+              'provider' => 'files',
+              'require'  => [ 'valid-user', 'all denied', ],
+            },
+            {
+              'path'     => '/var/www/files',
+              'provider' => 'files',
+              'require'  => 'all granted',
+            },
+            { 'path'              => '/var/www/files/indexed_directory',
+              'directoryindex'    => 'disabled',
+              'options'           => ['Indexes','FollowSymLinks','MultiViews'],
+              'index_options'     => ['FancyIndexing'],
+              'index_style_sheet' => '/styles/style.css',
+            },
+          ],
           'error_log'                   => false,
           'error_log_file'              => 'httpd_error_log',
-          'error_log_pipe'              => '',
           'error_log_syslog'            => true,
           'error_documents'             => 'true',
           'fallbackresource'            => '/index.php',
@@ -172,8 +209,26 @@ describe 'apache::vhost', :type => :define do
           'proxy_dest'                  => '/',
           'proxy_pass'                  => [
             {
-              'path' => '/a',
-              'url'  => 'http://backend-a/'
+              'path'     => '/a',
+              'url'      => 'http://backend-a/',
+              'keywords' => ['noquery', 'interpolate'],
+              'params'   => {
+                      'retry'   => '0',
+                      'timeout' => '5'
+              },
+              'setenv'   => ['proxy-nokeepalive 1','force-proxy-request-1.0 1'],
+            }
+          ],
+          'proxy_pass_match'            => [
+            {
+              'path'     => '/a',
+              'url'      => 'http://backend-a/',
+              'keywords' => ['noquery', 'interpolate'],
+              'params'   => {
+                      'retry'   => '0',
+                      'timeout' => '5'
+              },
+              'setenv'   => ['proxy-nokeepalive 1','force-proxy-request-1.0 1'],
             }
           ],
           'suphp_addhandler'            => 'foo',
@@ -182,7 +237,9 @@ describe 'apache::vhost', :type => :define do
           'php_admin_flags'             => ['foo', 'bar'],
           'php_admin_values'            => ['true', 'false'],
           'no_proxy_uris'               => '/foo',
+          'no_proxy_uris_match'         => '/foomatch',
           'proxy_preserve_host'         => true,
+          'proxy_error_override'        => true,
           'redirect_source'             => '/bar',
           'redirect_dest'               => '/',
           'redirect_status'             => 'temp',
@@ -225,6 +282,7 @@ describe 'apache::vhost', :type => :define do
             'user'  => 'someuser',
             'group' => 'somegroup'
           },
+          'wsgi_chunked_request'        => 'On',
           'action'                      => 'foo',
           'fastcgi_server'              => 'localhost',
           'fastcgi_socket'              => '/tmp/fastcgi.socket',
@@ -232,29 +290,44 @@ describe 'apache::vhost', :type => :define do
           'additional_includes'         => '/custom/path/includes',
           'apache_version'              => '2.4',
           'suexec_user_group'           => 'root root',
-          'allow_encoded_slashes'       => 'nodecode'
+          'allow_encoded_slashes'       => 'nodecode',
+          'passenger_app_root'          => '/usr/share/myapp',
+          'passenger_app_env'           => 'test',
+          'passenger_ruby'              => '/usr/bin/ruby1.9.1',
+          'passenger_min_instances'     => '1',
+          'passenger_start_timeout'     => '600',
+          'passenger_pre_start'         => 'http://localhost/myapp',
+          'add_default_charset'         => 'UTF-8',
         }
       end
       let :facts do
         {
           :osfamily               => 'RedHat',
-          :operatingsystemrelease => '6',
+          :operatingsystemrelease => '7',
           :concat_basedir         => '/dne',
           :operatingsystem        => 'RedHat',
           :id                     => 'root',
           :kernel                 => 'Linux',
           :path                   => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
           :kernelversion          => '3.6.2',
+          :is_pe                  => false,
         }
       end
 
       it { is_expected.to compile }
       it { is_expected.to_not contain_file('/var/www/foo') }
       it { is_expected.to contain_class('apache::mod::ssl') }
+      it { is_expected.to contain_file('ssl.conf').with(
+        :content => /^\s+SSLHonorCipherOrder On$/ ) }
+      it { is_expected.to contain_file('ssl.conf').with(
+        :content => /^\s+SSLPassPhraseDialog builtin$/ ) }
+      it { is_expected.to contain_file('ssl.conf').with(
+        :content => /^\s+SSLSessionCacheTimeout 300$/ ) }
       it { is_expected.to contain_class('apache::mod::mime') }
       it { is_expected.to contain_class('apache::mod::vhost_alias') }
       it { is_expected.to contain_class('apache::mod::wsgi') }
       it { is_expected.to contain_class('apache::mod::suexec') }
+      it { is_expected.to contain_class('apache::mod::passenger') }
       it { is_expected.to contain_file('/var/www/logs').with({
         'ensure' => 'directory',
         'mode'   => '0600',
@@ -268,11 +341,17 @@ describe 'apache::vhost', :type => :define do
       it { is_expected.to contain_class('apache::mod::passenger') }
       it { is_expected.to contain_class('apache::mod::fastcgi') }
       it { is_expected.to contain_class('apache::mod::headers') }
+      it { is_expected.to contain_class('apache::mod::setenvif') }
       it { is_expected.to contain_concat('30-rspec.example.com.conf').with({
         'owner'   => 'root',
         'mode'    => '0644',
         'require' => 'Package[httpd]',
-        'notify'  => 'Service[httpd]',
+        'notify'  => 'Class[Apache::Service]',
+      })
+      }
+      it { is_expected.to contain_file('30-rspec.example.com.conf symlink').with({
+        'ensure' => 'link',
+        'path'   => '/etc/apache2/sites-enabled/30-rspec.example.com.conf',
       })
       }
       it { is_expected.to contain_concat__fragment('rspec.example.com-apache-header') }
@@ -281,6 +360,20 @@ describe 'apache::vhost', :type => :define do
       it { is_expected.to contain_concat__fragment('rspec.example.com-itk') }
       it { is_expected.to contain_concat__fragment('rspec.example.com-fallbackresource') }
       it { is_expected.to contain_concat__fragment('rspec.example.com-directories') }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-directories').with(
+        :content => /^\s+Require valid-user$/ ) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-directories').with(
+        :content => /^\s+Require all denied$/ ) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-directories').with(
+        :content => /^\s+Require all granted$/ ) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-directories').with(
+        :content => /^\s+Options\sIndexes\sFollowSymLinks\sMultiViews$/ ) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-directories').with(
+        :content => /^\s+IndexOptions\sFancyIndexing$/ ) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-directories').with(
+        :content => /^\s+IndexStyleSheet\s'\/styles\/style\.css'$/ ) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-directories').with(
+        :content => /^\s+DirectoryIndex\sdisabled$/ ) }
       it { is_expected.to contain_concat__fragment('rspec.example.com-additional_includes') }
       it { is_expected.to contain_concat__fragment('rspec.example.com-logging') }
       it { is_expected.to contain_concat__fragment('rspec.example.com-serversignature') }
@@ -288,7 +381,16 @@ describe 'apache::vhost', :type => :define do
       it { is_expected.to contain_concat__fragment('rspec.example.com-action') }
       it { is_expected.to contain_concat__fragment('rspec.example.com-block') }
       it { is_expected.to contain_concat__fragment('rspec.example.com-error_document') }
-      it { is_expected.to contain_concat__fragment('rspec.example.com-proxy') }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-proxy').with_content(
+              /retry=0/) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-proxy').with_content(
+              /timeout=5/) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-proxy').with_content(
+              /SetEnv force-proxy-request-1.0 1/) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-proxy').with_content(
+              /SetEnv proxy-nokeepalive 1/) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-proxy').with_content(
+              /noquery interpolate/) }
       it { is_expected.to contain_concat__fragment('rspec.example.com-rack') }
       it { is_expected.to contain_concat__fragment('rspec.example.com-redirect') }
       it { is_expected.to contain_concat__fragment('rspec.example.com-rewrite') }
@@ -304,6 +406,9 @@ describe 'apache::vhost', :type => :define do
       it { is_expected.to contain_concat__fragment('rspec.example.com-custom_fragment') }
       it { is_expected.to contain_concat__fragment('rspec.example.com-fastcgi') }
       it { is_expected.to contain_concat__fragment('rspec.example.com-suexec') }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-allow_encoded_slashes') }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-passenger') }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-charsets') }
       it { is_expected.to contain_concat__fragment('rspec.example.com-file_footer') }
     end
     context 'not everything can be set together...' do
@@ -316,6 +421,23 @@ describe 'apache::vhost', :type => :define do
           'manage_docroot'  => true,
           'logroot'         => '/tmp/logroot',
           'logroot_ensure'  => 'absent',
+          'directories'     => [
+            {
+              'path'     => '/var/www/files',
+              'provider' => 'files',
+              'allow'    => [ 'from 127.0.0.1', 'from 127.0.0.2', ],
+              'deny'     => [ 'from 127.0.0.3', 'from 127.0.0.4', ],
+              'satisfy'  => 'any',
+            },
+            {
+              'path'     => '/var/www/foo',
+              'provider' => 'files',
+              'allow'    => 'from 127.0.0.5',
+              'deny'     => 'from all',
+              'order'    => 'deny,allow',
+            },
+          ],
+
         }
       end
       let :facts do
@@ -328,6 +450,7 @@ describe 'apache::vhost', :type => :define do
           :kernel                 => 'Linux',
           :path                   => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
           :kernelversion          => '3.6.2',
+          :is_pe                  => false,
         }
       end
 
@@ -336,9 +459,10 @@ describe 'apache::vhost', :type => :define do
       it { is_expected.to_not contain_class('apache::mod::mime') }
       it { is_expected.to_not contain_class('apache::mod::vhost_alias') }
       it { is_expected.to_not contain_class('apache::mod::wsgi') }
+      it { is_expected.to_not contain_class('apache::mod::passenger') }
       it { is_expected.to_not contain_class('apache::mod::suexec') }
       it { is_expected.to_not contain_class('apache::mod::rewrite') }
-      it { is_expected.to contain_class('apache::mod::alias') }
+      it { is_expected.to_not contain_class('apache::mod::alias') }
       it { is_expected.to_not contain_class('apache::mod::proxy') }
       it { is_expected.to_not contain_class('apache::mod::proxy_http') }
       it { is_expected.to_not contain_class('apache::mod::passenger') }
@@ -358,6 +482,22 @@ describe 'apache::vhost', :type => :define do
       it { is_expected.to_not contain_concat__fragment('rspec.example.com-itk') }
       it { is_expected.to_not contain_concat__fragment('rspec.example.com-fallbackresource') }
       it { is_expected.to contain_concat__fragment('rspec.example.com-directories') }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-directories').with(
+        :content => /^\s+Allow from 127\.0\.0\.1$/ ) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-directories').with(
+        :content => /^\s+Allow from 127\.0\.0\.2$/ ) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-directories').with(
+        :content => /^\s+Allow from 127\.0\.0\.5$/ ) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-directories').with(
+        :content => /^\s+Deny from 127\.0\.0\.3$/ ) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-directories').with(
+        :content => /^\s+Deny from 127\.0\.0\.4$/ ) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-directories').with(
+        :content => /^\s+Deny from all$/ ) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-directories').with(
+        :content => /^\s+Satisfy any$/ ) }
+      it { is_expected.to contain_concat__fragment('rspec.example.com-directories').with(
+        :content => /^\s+Order deny,allow$/ ) }
       it { is_expected.to_not contain_concat__fragment('rspec.example.com-additional_includes') }
       it { is_expected.to contain_concat__fragment('rspec.example.com-logging') }
       it { is_expected.to contain_concat__fragment('rspec.example.com-serversignature') }
@@ -381,9 +521,68 @@ describe 'apache::vhost', :type => :define do
       it { is_expected.to_not contain_concat__fragment('rspec.example.com-custom_fragment') }
       it { is_expected.to_not contain_concat__fragment('rspec.example.com-fastcgi') }
       it { is_expected.to_not contain_concat__fragment('rspec.example.com-suexec') }
+      it { is_expected.to_not contain_concat__fragment('rspec.example.com-charsets') }
       it { is_expected.to contain_concat__fragment('rspec.example.com-file_footer') }
     end
   end
+  describe 'access logs' do
+    let :facts do
+      {
+        :osfamily               => 'RedHat',
+        :operatingsystemrelease => '6',
+        :concat_basedir         => '/dne',
+        :operatingsystem        => 'RedHat',
+        :id                     => 'root',
+        :kernel                 => 'Linux',
+        :path                   => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+        :is_pe                  => false,
+      }
+    end
+    context 'single log file' do
+      let(:params) do
+        {
+          'docroot'         => '/rspec/docroot',
+          'access_log_file' => 'my_log_file',
+        }
+      end
+      it { is_expected.to contain_concat__fragment('rspec.example.com-access_log').with(
+        :content => /^\s+CustomLog.*my_log_file" combined\s*$/
+      )}
+    end
+    context 'single log file with environment' do
+      let(:params) do
+        {
+          'docroot'            => '/rspec/docroot',
+          'access_log_file'    => 'my_log_file',
+          'access_log_env_var' => 'prod'
+        }
+      end
+      it { is_expected.to contain_concat__fragment('rspec.example.com-access_log').with(
+        :content => /^\s+CustomLog.*my_log_file" combined\s+env=prod$/
+      )}
+    end
+    context 'multiple log files' do
+      let(:params) do
+        {
+          'docroot'     => '/rspec/docroot',
+          'access_logs' => [
+            { 'file' => '/tmp/log1', 'env' => 'dev' },
+            { 'file' => 'log2' },
+            { 'syslog' => 'syslog', 'format' => '%h %l' }
+          ],
+        }
+      end
+      it { is_expected.to contain_concat__fragment('rspec.example.com-access_log').with(
+        :content => /^\s+CustomLog "\/tmp\/log1"\s+combined\s+env=dev$/
+      )}
+      it { is_expected.to contain_concat__fragment('rspec.example.com-access_log').with(
+        :content => /^\s+CustomLog "\/var\/log\/httpd\/log2"\s+combined\s*$/
+      )}
+      it { is_expected.to contain_concat__fragment('rspec.example.com-access_log').with(
+        :content => /^\s+CustomLog "syslog" "%h %l"\s*$/
+      )}
+    end
+  end # access logs
   describe 'validation' do
     context 'bad ensure' do
       let :params do
@@ -592,6 +791,16 @@ describe 'apache::vhost', :type => :define do
         {
           'docroot'         => '/rspec/docroot',
           'custom_fragment' => true,
+        }
+      end
+      let :facts do default_facts end
+      it { expect { is_expected.to compile }.to raise_error }
+    end
+    context 'bad access_logs' do
+      let :params do
+        {
+          'docroot'     => '/rspec/docroot',
+          'access_logs' => '/var/log/somewhere',
         }
       end
       let :facts do default_facts end
