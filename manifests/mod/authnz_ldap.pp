@@ -1,6 +1,7 @@
 class apache::mod::authnz_ldap (
   $verifyServerCert = true,
 ) {
+  include ::apache
   include '::apache::mod::ldap'
   ::apache::mod { 'authnz_ldap': }
 
@@ -11,6 +12,7 @@ class apache::mod::authnz_ldap (
   file { 'authnz_ldap.conf':
     ensure  => file,
     path    => "${::apache::mod_dir}/authnz_ldap.conf",
+    mode    => $::apache::file_mode,
     content => template('apache/mod/authnz_ldap.conf.erb'),
     require => Exec["mkdir ${::apache::mod_dir}"],
     before  => File[$::apache::mod_dir],

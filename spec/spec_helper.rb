@@ -1,8 +1,6 @@
 require 'puppetlabs_spec_helper/module_spec_helper'
 
 RSpec.configure do |c|
-  c.treat_symbols_as_metadata_keys_with_true_values = true
-
   c.before :each do
     # Ensure that we don't accidentally cache facts and environment
     # between test cases.
@@ -21,5 +19,22 @@ RSpec.configure do |c|
 end
 
 shared_examples :compile, :compile => true do
+  it { should compile.with_all_deps }
+end
+
+shared_examples 'a mod class, without including apache' do
+   let :facts do
+    {
+      :id                     => 'root',
+      :lsbdistcodename        => 'squeeze',
+      :kernel                 => 'Linux',
+      :osfamily               => 'Debian',
+      :operatingsystem        => 'Debian',
+      :operatingsystemrelease => '6',
+      :path                   => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+      :concat_basedir         => '/dne',
+      :is_pe                  => false,
+    }
+  end
   it { should compile.with_all_deps }
 end
